@@ -40,6 +40,9 @@ public class FireExtinguisher : MonoBehaviour
     private float sprayTimer = 0f;
     private bool isSpraying = false;
     private bool isHoldingExtinguisher = false;
+
+    /// <summary>True while actively spraying — SprayZone reads this to gate the extinguish effect.</summary>
+    public bool IsSpraying => isSpraying;
    // private PerformanceTracker performanceTracker;
 
     private void Start()

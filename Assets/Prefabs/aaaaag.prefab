@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 8587371096986747969}
   - component: {fileID: 3080346450432728058}
   - component: {fileID: 3409511324344350171}
+  - component: {fileID: 5316070063547332850}
   m_Layer: 0
   m_Name: aaaaag
   m_TagString: Untagged
@@ -32,8 +33,8 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 0.1, y: 0.1, z: 0.1}
-  m_ConstrainProportionsScale: 0
+  m_LocalScale: {x: 0.3, y: 0.3, z: 0.3}
+  m_ConstrainProportionsScale: 1
   m_Children:
   - {fileID: 1664336592607367109}
   - {fileID: 2904580099189689528}
@@ -181,6 +182,21 @@ MonoBehaviour:
   _kinematicWhileSelected: 1
   _throwWhenUnselected: 1
   _forceKinematicDisabled: 0
+--- !u!114 &5316070063547332850
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6495359179319376036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d6f868add3feb9448afda01126c4d798, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  shrinkRate: 0.5
+  regrowDelay: 2
+  regrowRate: 0.25
 --- !u!1 &7487476948190198225
 GameObject:
   m_ObjectHideFlags: 0

@@ -13,7 +13,7 @@ using TMPro;
 ///   A (Button.One)   -> spawn the SELECTED prefab at the right controller and anchor it
 ///   B (Button.Two)   -> switch which prefab is selected (Fire <-> Extinguisher)
 ///   X (Button.Three) -> reload all saved anchors (each respawns its own prefab)
-///   Y (Button.Four)  -> forget saved UUIDs (local list only)
+///   Y (Button.Four)  -> RESET: destroy all spawned fire/extinguishers + clear saved anchors
 ///
 /// Each saved entry stores "uuid|prefabIndex", so reload knows whether to respawn Fire or
 /// Extinguisher. UUIDs persist in PlayerPrefs.
@@ -43,6 +43,9 @@ public class AnchorProbe : MonoBehaviour
 
     // 0 = Fire, 1 = Extinguisher
     private int selectedIndex = 0;
+
+    // Everything spawned this session (place + load), so Reset can remove it all.
+    private readonly List<GameObject> spawned = new List<GameObject>();
 
     private GameObject SelectedPrefab => selectedIndex == 0 ? firePrefab : extinguisherPrefab;
     private string SelectedName => selectedIndex == 0 ? "Fire" : "Extinguisher";
@@ -85,8 +88,8 @@ public class AnchorProbe : MonoBehaviour
         if (OVRInput.GetDown(OVRInput.Button.Three))  // X (left)  -> reload saved
             await LoadSaved();
 
-        if (OVRInput.GetDown(OVRInput.Button.Four))   // Y (left)  -> clear saved
-            ClearSaved();
+        if (OVRInput.GetDown(OVRInput.Button.Four))   // Y (left)  -> reset (remove all + clear)
+            ResetScene();
     }
 
     // ---------------------------------------------------------------- selection + label
@@ -117,6 +120,7 @@ public class AnchorProbe : MonoBehaviour
 
         // Spawn first for immediate feedback, regardless of permission/anchoring.
         var go = Instantiate(prefab, rightController.position, rightController.rotation);
+        spawned.Add(go);
         Debug.Log($"[Probe] Trigger -> spawned {SelectedName}.");
 
         if (!Permission.HasUserAuthorizedPermission(ScenePermission))
@@ -151,6 +155,7 @@ public class AnchorProbe : MonoBehaviour
             var m = Instantiate(prefab, anchor.transform);
             m.transform.localPosition = Vector3.zero;
             m.transform.localRotation = Quaternion.identity;
+            spawned.Add(m);
             Debug.Log($"[Probe] Re-spawned {(idx == 0 ? "Fire" : "Extinguisher")} on anchor {anchor.Uuid}.");
         });
     }
@@ -193,5 +198,26 @@ public class AnchorProbe : MonoBehaviour
         PlayerPrefs.DeleteKey(PrefKey);
         PlayerPrefs.Save();
         Debug.Log("[Probe] Forgot all saved entries.");
+    }
+
+    // ---------------------------------------------------------------- reset
+
+    /// <summary>
+    /// Y button: wipe the session — destroy every spawned fire/extinguisher (and its anchor
+    /// wrapper) and forget the saved anchors so nothing reloads next launch.
+    /// </summary>
+    private void ResetScene()
+    {
+        int destroyed = 0;
+        foreach (var go in spawned)
+        {
+            if (go == null) continue;
+            // go is parented under its anchor wrapper; destroying the root removes both.
+            Destroy(go.transform.root.gameObject);
+            destroyed++;
+        }
+        spawned.Clear();
+        ClearSaved();
+        Debug.Log($"[Probe] Reset: destroyed {destroyed} spawned object(s) and cleared saved anchors.");
     }
 }

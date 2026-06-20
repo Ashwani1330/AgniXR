@@ -18,12 +18,18 @@ public static class SpatialAnchorStore
     /// Attach a spatial anchor to <paramref name="target"/>, wait for it to localize, and save it.
     /// Returns the anchor's UUID on success, or null on failure.
     /// </summary>
-    public static async Task<Guid?> CreateAndSaveAsync(GameObject target)
+    public static async Task<Guid?> CreateAndSaveAsync(GameObject content)
     {
-        var anchor = target.GetComponent<OVRSpatialAnchor>();
-        if (anchor == null) anchor = target.AddComponent<OVRSpatialAnchor>();
+        // Put the anchor on a dedicated PARENT, with the content as a child. A localized anchor
+        // continuously drives its own transform — if it sits on the same object as a Grabbable,
+        // it fights the grab and the object can't be held. Anchoring the parent keeps the child
+        // freely grabbable (and matches what LoadAndBindAsync does on reload).
+        var anchorGO = new GameObject("SpatialAnchor");
+        anchorGO.transform.SetPositionAndRotation(content.transform.position, content.transform.rotation);
+        content.transform.SetParent(anchorGO.transform, worldPositionStays: true);
 
-        Debug.Log("[Anchor] Created component, waiting to localize...");
+        var anchor = anchorGO.AddComponent<OVRSpatialAnchor>();
+        Debug.Log("[Anchor] Created on parent wrapper, waiting to localize...");
         if (!await anchor.WhenLocalizedAsync())
         {
             Debug.LogError("[Anchor] New anchor failed to localize (look around the room and retry).");

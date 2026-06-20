@@ -3,18 +3,20 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Android;
+using TMPro;
 
 /// <summary>
-/// STEP 1 de-risk test — no UI, no SpawnableItem yet. Proves a single OVRSpatialAnchor persists
-/// across an app restart, in the same physical spot.
+/// Controller spawner + anchor test. Spawns one of two prefabs (Fire / Extinguisher) at the
+/// right controller and persists each as an OVRSpatialAnchor so they return after a restart.
 ///
-/// Controls (right Touch controller):
-///   Right Trigger  -> create + save an anchor at the controller's position (drops a marker)
-///   A (Button.One) -> load every saved anchor and drop a marker at each
-///   B (Button.Two) -> forget the saved UUIDs (local list only; doesn't erase from device)
+/// Controls (face buttons only — the index trigger is reserved for extinguisher spray):
+///   A (Button.One)   -> spawn the SELECTED prefab at the right controller and anchor it
+///   B (Button.Two)   -> switch which prefab is selected (Fire <-> Extinguisher)
+///   X (Button.Three) -> reload all saved anchors (each respawns its own prefab)
+///   Y (Button.Four)  -> forget saved UUIDs (local list only)
 ///
-/// UUIDs are stored in PlayerPrefs, so the test is: place one or two, QUIT the app, relaunch,
-/// press A — the markers should reappear exactly where you left them in the real room.
+/// Each saved entry stores "uuid|prefabIndex", so reload knows whether to respawn Fire or
+/// Extinguisher. UUIDs persist in PlayerPrefs.
 /// </summary>
 public class AnchorProbe : MonoBehaviour
 {
@@ -22,25 +24,38 @@ public class AnchorProbe : MonoBehaviour
     [Tooltip("OVRCameraRig > TrackingSpace > RightControllerAnchor (or RightHandAnchor).")]
     [SerializeField] private Transform rightController;
 
-    [Tooltip("Any small prefab to mark an anchor (a cube is fine).")]
-    [SerializeField] private GameObject markerPrefab;
+    [Header("Spawnable prefabs (drag yours in)")]
+    [Tooltip("Index 0 — spawned when 'Fire' is selected.")]
+    [SerializeField] private GameObject firePrefab;
+    [Tooltip("Index 1 — spawned when 'Extinguisher' is selected.")]
+    [SerializeField] private GameObject extinguisherPrefab;
+
+    [Header("UI")]
+    [Tooltip("TMP text childed on the controller; shows the current selection and how to switch.")]
+    [SerializeField] private TMP_Text selectionLabel;
 
     [Header("Behaviour")]
     [Tooltip("Automatically reload saved anchors once permission is granted (on app start).")]
     [SerializeField] private bool autoLoadOnStart = true;
 
-    private const string PrefKey = "anchor_probe_uuids";
-
-    // Spatial-data storage (anchor persistence) is gated behind this RUNTIME permission.
-    // Declaring it in AndroidManifest.xml is not enough — it must be granted at launch.
+    private const string PrefKey = "anchor_probe_entries";
     private const string ScenePermission = "com.oculus.permission.USE_SCENE";
+
+    // 0 = Fire, 1 = Extinguisher
+    private int selectedIndex = 0;
+
+    private GameObject SelectedPrefab => selectedIndex == 0 ? firePrefab : extinguisherPrefab;
+    private string SelectedName => selectedIndex == 0 ? "Fire" : "Extinguisher";
+    private string OtherName => selectedIndex == 0 ? "Extinguisher" : "Fire";
 
     private void Start()
     {
+        UpdateLabel();
+
         if (Permission.HasUserAuthorizedPermission(ScenePermission))
         {
             Debug.Log("[Probe] Spatial Data permission already granted.");
-            if (autoLoadOnStart) _ = LoadMarkers();
+            if (autoLoadOnStart) _ = LoadSaved();
             return;
         }
 
@@ -49,7 +64,7 @@ public class AnchorProbe : MonoBehaviour
         callbacks.PermissionGranted += permission =>
         {
             Debug.Log("[Probe] Spatial Data permission GRANTED.");
-            if (autoLoadOnStart) _ = LoadMarkers();
+            if (autoLoadOnStart) _ = LoadSaved();
         };
         callbacks.PermissionDenied += permission =>
             Debug.LogError("[Probe] Spatial Data permission DENIED — anchors cannot persist. " +
@@ -59,83 +74,124 @@ public class AnchorProbe : MonoBehaviour
 
     private async void Update()
     {
-        if (OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger))
-            await PlaceAnchor();
+        // NOTE: the index trigger is reserved for gameplay (extinguisher spray), so all
+        // authoring/probe actions live on face buttons to avoid input conflicts.
+        if (OVRInput.GetDown(OVRInput.Button.One))    // A (right) -> spawn selected
+            await PlaceSelected();
 
-        if (OVRInput.GetDown(OVRInput.Button.One))
-            await LoadMarkers();
+        if (OVRInput.GetDown(OVRInput.Button.Two))    // B (right) -> switch prefab
+            ToggleSelection();
 
-        if (OVRInput.GetDown(OVRInput.Button.Two))
+        if (OVRInput.GetDown(OVRInput.Button.Three))  // X (left)  -> reload saved
+            await LoadSaved();
+
+        if (OVRInput.GetDown(OVRInput.Button.Four))   // Y (left)  -> clear saved
             ClearSaved();
     }
 
-    private async Task PlaceAnchor()
+    // ---------------------------------------------------------------- selection + label
+
+    private void ToggleSelection()
     {
-        if (markerPrefab == null || rightController == null)
+        selectedIndex = 1 - selectedIndex;
+        UpdateLabel();
+        Debug.Log($"[Probe] Selected prefab: {SelectedName}.");
+    }
+
+    private void UpdateLabel()
+    {
+        if (selectionLabel != null)
+            selectionLabel.text = $"A = Spawn {SelectedName}\nB = switch to {OtherName}";
+    }
+
+    // ---------------------------------------------------------------- spawn + anchor
+
+    private async Task PlaceSelected()
+    {
+        var prefab = SelectedPrefab;
+        if (prefab == null || rightController == null)
         {
-            Debug.LogError("[Probe] Assign rightController and markerPrefab.");
+            Debug.LogError($"[Probe] Assign rightController and the {SelectedName} prefab.");
             return;
         }
 
-        // Spawn FIRST — this always happens so the trigger gives immediate visual feedback,
-        // independent of permissions/anchoring. If no cylinder appears here, the problem is
-        // input (controllers asleep / hand-tracking active / stale build), not anchoring.
-        var go = Instantiate(markerPrefab, rightController.position, rightController.rotation);
-        Debug.Log("[Probe] Trigger -> spawned marker at controller.");
+        // Spawn first for immediate feedback, regardless of permission/anchoring.
+        var go = Instantiate(prefab, rightController.position, rightController.rotation);
+        Debug.Log($"[Probe] Trigger -> spawned {SelectedName}.");
 
-        // Anchoring/persistence is the only part that needs the runtime permission.
         if (!Permission.HasUserAuthorizedPermission(ScenePermission))
         {
-            Debug.LogError("[Probe] Spatial Data permission NOT granted — cylinder spawned but will NOT anchor/persist.");
+            Debug.LogError("[Probe] Spatial Data permission NOT granted — spawned but will NOT persist.");
             return;
         }
 
         var uuid = await SpatialAnchorStore.CreateAndSaveAsync(go);
-        if (uuid.HasValue) Remember(uuid.Value);
+        if (uuid.HasValue) Remember(uuid.Value, selectedIndex);
     }
 
-    private async Task LoadMarkers()
+    // ---------------------------------------------------------------- load
+
+    private async Task LoadSaved()
     {
-        var uuids = LoadSaved();
-        Debug.Log($"[Probe] LoadMarkers: {uuids.Count} UUID(s) in PlayerPrefs.");
-        if (uuids.Count == 0) { Debug.Log("[Probe] Nothing to load (PlayerPrefs empty)."); return; }
+        var entries = LoadEntries();
+        Debug.Log($"[Probe] LoadSaved: {entries.Count} entry(s) in PlayerPrefs.");
+        if (entries.Count == 0) return;
+
+        // Map uuid -> prefab index so each anchor respawns the prefab it was saved as.
+        var indexByUuid = new Dictionary<Guid, int>();
+        var uuids = new List<Guid>();
+        foreach (var e in entries) { indexByUuid[e.Key] = e.Value; uuids.Add(e.Key); }
 
         await SpatialAnchorStore.LoadAndBindAsync(uuids, anchor =>
         {
-            var m = Instantiate(markerPrefab, anchor.transform);
+            int idx = indexByUuid.TryGetValue(anchor.Uuid, out var i) ? i : 0;
+            var prefab = idx == 0 ? firePrefab : extinguisherPrefab;
+            if (prefab == null) return;
+
+            var m = Instantiate(prefab, anchor.transform);
             m.transform.localPosition = Vector3.zero;
             m.transform.localRotation = Quaternion.identity;
-            Debug.Log($"[Probe] Re-spawned marker on anchor {anchor.Uuid}.");
+            Debug.Log($"[Probe] Re-spawned {(idx == 0 ? "Fire" : "Extinguisher")} on anchor {anchor.Uuid}.");
         });
     }
 
-    // ----------------------------------------------- tiny UUID persistence (PlayerPrefs)
+    // ---------------------------------------------------------------- persistence (uuid|index)
 
-    private void Remember(Guid uuid)
+    private void Remember(Guid uuid, int index)
     {
-        var list = LoadSaved();
-        list.Add(uuid);
-        var joined = string.Join(",", list);
-        PlayerPrefs.SetString(PrefKey, joined);
+        var entries = LoadEntries();
+        entries[uuid] = index;
+        PlayerPrefs.SetString(PrefKey, Serialize(entries));
         PlayerPrefs.Save();
-        Debug.Log($"[Probe] Remembered {uuid}. PlayerPrefs now: \"{joined}\" ({list.Count} total).");
+        Debug.Log($"[Probe] Remembered {uuid} as index {index}. ({entries.Count} total).");
     }
 
-    private List<Guid> LoadSaved()
+    private Dictionary<Guid, int> LoadEntries()
     {
-        var list = new List<Guid>();
+        var dict = new Dictionary<Guid, int>();
         var s = PlayerPrefs.GetString(PrefKey, "");
-        Debug.Log($"[Probe] PlayerPrefs raw value: \"{s}\".");
-        if (!string.IsNullOrEmpty(s))
-            foreach (var part in s.Split(','))
-                if (Guid.TryParse(part, out var g)) list.Add(g);
-        return list;
+        if (string.IsNullOrEmpty(s)) return dict;
+
+        foreach (var pair in s.Split(','))
+        {
+            var parts = pair.Split('|');
+            if (parts.Length == 2 && Guid.TryParse(parts[0], out var g) && int.TryParse(parts[1], out var idx))
+                dict[g] = idx;
+        }
+        return dict;
+    }
+
+    private string Serialize(Dictionary<Guid, int> entries)
+    {
+        var parts = new List<string>(entries.Count);
+        foreach (var kv in entries) parts.Add($"{kv.Key}|{kv.Value}");
+        return string.Join(",", parts);
     }
 
     private void ClearSaved()
     {
         PlayerPrefs.DeleteKey(PrefKey);
         PlayerPrefs.Save();
-        Debug.Log("[Probe] Forgot all saved UUIDs.");
+        Debug.Log("[Probe] Forgot all saved entries.");
     }
 }

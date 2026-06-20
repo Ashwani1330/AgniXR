@@ -1,113 +1,120 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
-using UnityEngine.XR.Interaction.Toolkit;
+using Oculus.Interaction;
 
+/// <summary>
+/// Meta XR SDK version of the extinguisher (converted from XR Interaction Toolkit).
+///
+/// Grab is detected IN CODE by polling the Grabbable's selection state — no
+/// PointableUnityEventWrapper wiring required. (The public OnExtinguisherGrabbed/Released
+/// methods are still here so you CAN wire an event wrapper too, but it's optional.)
+///
+/// Spray is read from OVRInput (index trigger), not an InputActionReference.
+/// </summary>
 public class FireExtinguisher : MonoBehaviour
 {
-    [Header("XR Components")]
-    public UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable extinguisher;
-    public UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable pinObject;
-    private Rigidbody pinRigidbody;
-
     [Header("Fire Suppression System")]
     public ParticleSystem fireSuppressant;
-    public InputActionReference triggerAction;
     public float maxSprayDuration = 10f;
-    
+
+    [Header("Spray Trigger (OVR)")]
+    [Tooltip("Spray while either index trigger is held past this value (0..1).")]
+    public float triggerThreshold = 0.5f;
+
     [Header("Fire Detection")]
-    public LayerMask fireLayer; // Layer for fire objects
-    public float sprayRadius = 2f; // Detection radius for fire extinction
-    private bool hasExtinguishedFire = false;
-    
+    public LayerMask fireLayer;
+    public float sprayRadius = 2f;
+
     [Header("Audio")]
     public AudioSource sprayAudio;
 
     [Header("Pin Mechanics")]
+    public GameObject pinObject;
     public bool isPinPulled = false;
-    private Vector3 initialPinPosition;
-    public float pinPullThreshold = 0.1f;
+    [Tooltip("For quick testing: count the pin as pulled the moment the extinguisher is grabbed.")]
+    public bool autoPullPinOnGrab = true;
+
+    [Header("Grab")]
+    [Tooltip("The Grabbable to read held-state from. Auto-found on this object if left empty.")]
+    [SerializeField] private Grabbable grabbable;
 
     private float sprayTimer = 0f;
     private bool isSpraying = false;
     private bool isHoldingExtinguisher = false;
-    private PerformanceTracker performanceTracker;
+   // private PerformanceTracker performanceTracker;
 
     private void Start()
     {
-        performanceTracker = FindObjectOfType<PerformanceTracker>();
-        if (performanceTracker == null) Debug.LogError("PerformanceTracker not found in scene!");
+        //performanceTracker = FindObjectOfType<PerformanceTracker>();
+        //if (performanceTracker == null) Debug.LogWarning("[Extinguisher] PerformanceTracker not found in scene.");
 
         if (fireSuppressant != null) fireSuppressant.Stop();
-        else Debug.LogError("Particle system (fireSuppressant) is not assigned!");
+        else Debug.LogError("[Extinguisher] fireSuppressant (ParticleSystem) is not assigned!");
 
-        if (sprayAudio == null) Debug.LogError("AudioSource (sprayAudio) is not assigned!");
+        if (sprayAudio == null) Debug.LogWarning("[Extinguisher] sprayAudio (AudioSource) is not assigned.");
 
-        if (triggerAction != null) triggerAction.action.Enable();
-        else Debug.LogError("Trigger Action is not assigned!");
-
-        if (pinObject != null)
-        {
-            pinRigidbody = pinObject.GetComponent<Rigidbody>();
-            if (pinRigidbody != null) pinRigidbody.isKinematic = true;
-            else Debug.LogError("Pin object is missing a Rigidbody component!");
-            initialPinPosition = pinObject.transform.position;
-            pinObject.selectEntered.AddListener(OnPinGrabbed);
-            pinObject.selectExited.AddListener(OnPinReleased);
-        }
-
-        if (extinguisher != null)
-        {
-            extinguisher.selectEntered.AddListener(OnExtinguisherGrabbed);
-            extinguisher.selectExited.AddListener(OnExtinguisherReleased);
-        }
-        else Debug.LogError("Extinguisher XRGrabInteractable is not assigned!");
+        if (grabbable == null) grabbable = GetComponent<Grabbable>();
+        if (grabbable == null) Debug.LogError("[Extinguisher] No Grabbable found — grab detection won't work.");
     }
 
     private void Update()
     {
+        UpdateHeldState();
         HandleSpray();
-        CheckPinPull();
-        CheckFireExtinguished();
     }
 
-    private void CheckFireExtinguished()
+    /// <summary>Poll the Grabbable so grab/release fire without any Inspector event wiring.</summary>
+    private void UpdateHeldState()
     {
-        if (isSpraying && !hasExtinguishedFire)
-        {
-            Collider[] hitColliders = Physics.OverlapSphere(
-                fireSuppressant.transform.position,
-                sprayRadius,
-                fireLayer
-            );
-        }
+        if (grabbable == null) return;
+        bool held = grabbable.SelectingPointsCount > 0;
+        if (held && !isHoldingExtinguisher) OnExtinguisherGrabbed();
+        else if (!held && isHoldingExtinguisher) OnExtinguisherReleased();
+    }
+
+    // ---- Grab callbacks: wire to PointableUnityEventWrapper (WhenSelect / WhenUnselect) ----
+
+    public void OnExtinguisherGrabbed()
+    {
+        isHoldingExtinguisher = true;
+        if (autoPullPinOnGrab) PullPin();
+        //if (performanceTracker != null)
+        //    performanceTracker.OnExtinguisherFound(Time.time - performanceTracker.startTime);
+        Debug.Log("[Extinguisher] Grabbed.");
+    }
+
+    public void OnExtinguisherReleased()
+    {
+        isHoldingExtinguisher = false;
+        StopSpraying();
+        Debug.Log("[Extinguisher] Released.");
+    }
+
+    /// <summary>Pull the safety pin (call from a poke/button, or via autoPullPinOnGrab).</summary>
+    public void PullPin()
+    {
+        if (isPinPulled) return;
+        isPinPulled = true;
+        if (pinObject != null) pinObject.SetActive(false);
+        Debug.Log("[Extinguisher] Pin pulled.");
     }
 
     private void HandleSpray()
     {
-        if (isHoldingExtinguisher && isPinPulled)
+        bool triggerHeld =
+            OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger) > triggerThreshold ||
+            OVRInput.Get(OVRInput.Axis1D.SecondaryIndexTrigger) > triggerThreshold;
+
+        if (isHoldingExtinguisher && isPinPulled && triggerHeld && sprayTimer < maxSprayDuration)
         {
-            float triggerValue = triggerAction.action.ReadValue<float>();
-
-            if (triggerValue > 0.5f && sprayTimer < maxSprayDuration)
+            if (!isSpraying)
             {
-                if (!isSpraying)
-                {
-                    isSpraying = true;
-                    Debug.Log("Spraying!");
-                    
-                    if (fireSuppressant != null && !fireSuppressant.isPlaying)
-                        fireSuppressant.Play();
-
-                    if (sprayAudio != null && !sprayAudio.isPlaying)
-                        sprayAudio.Play();
-                }
-
-                sprayTimer += Time.deltaTime;
+                isSpraying = true;
+                if (fireSuppressant != null && !fireSuppressant.isPlaying) fireSuppressant.Play();
+                if (sprayAudio != null && !sprayAudio.isPlaying) sprayAudio.Play();
+                Debug.Log("[Extinguisher] Spraying!");
             }
-            else
-            {
-                StopSpraying();
-            }
+            sprayTimer += Time.deltaTime;
+            DetectFireInSpray();
         }
         else
         {
@@ -122,56 +129,15 @@ public class FireExtinguisher : MonoBehaviour
         isSpraying = false;
     }
 
-    private void CheckPinPull()
+    /// <summary>
+    /// Hook for the scoring/extinguish logic. Finds fire colliders within the spray cone.
+    /// Later this ties into the SpawnableItem fire/extinguisher A-B matching.
+    /// </summary>
+    private void DetectFireInSpray()
     {
-        if (pinObject != null && pinObject.isSelected)
-        {
-            float pullDistance = Vector3.Distance(pinObject.transform.position, initialPinPosition);
-            if (pullDistance >= pinPullThreshold)
-            {
-                Destroy(pinObject.gameObject);
-                isPinPulled = true;
-                Debug.Log("Pin Pulled!");
-            }
-        }
-    }
-
-    private void OnExtinguisherGrabbed(SelectEnterEventArgs args)
-    {
-        isHoldingExtinguisher = true;
-        performanceTracker.OnExtinguisherFound(Time.time - performanceTracker.startTime);
-        Debug.Log("Extinguisher Grabbed!");
-    }
-
-    private void OnExtinguisherReleased(SelectExitEventArgs args)
-    {
-        isHoldingExtinguisher = false;
-        Debug.Log("Extinguisher Released!");
-    }
-
-    private void OnPinGrabbed(SelectEnterEventArgs args)
-    {
-        if (pinRigidbody != null) pinRigidbody.isKinematic = false;
-        pinObject.transform.SetParent(null);
-    }
-
-    private void OnPinReleased(SelectExitEventArgs args)
-    {
-        float pullDistance = Vector3.Distance(pinObject.transform.position, initialPinPosition);
-
-        if (pullDistance >= pinPullThreshold)
-        {
-            Destroy(pinObject.gameObject);
-            isPinPulled = true;
-            Debug.Log("Pin Successfully Pulled!");
-        }
-        else
-        {
-            if (pinRigidbody != null)
-            {
-                pinRigidbody.useGravity = true;
-                pinRigidbody.isKinematic = false;
-            }
-        }
+        if (fireSuppressant == null) return;
+        var hits = Physics.OverlapSphere(fireSuppressant.transform.position, sprayRadius, fireLayer);
+        // TODO: for each hit, resolve its SpawnableItem and extinguish if the class matches.
+        if (hits.Length > 0) Debug.Log($"[Extinguisher] Spray hitting {hits.Length} fire collider(s).");
     }
 }

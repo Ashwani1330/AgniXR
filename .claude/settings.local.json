@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -nE 'public |SerializeField|UnityEvent|prefab|Spawn|Instantiate' __TRACKED_VAR__/PointAndLocate.cs)",
+      "Bash(grep -rnE 'public bool Success|public .* Status\\\\b|public static OVRResult' __TRACKED_VAR__/Scripts/OVRResult.cs)",
+      "Bash(grep -nE \"m_Script: \\\\{fileID: 11500000, guid:\" Assets/Scenes/MR.unity)",
+      "Bash(awk '/--- !u!4 &237141692/{found=1} found && /m_GameObject:/{print; exit}' Assets/Scenes/MR.unity)",
+      "Bash(grep -nE \"^--- !u!1 &2030239974|&2030239974$\" Assets/Scenes/MR.unity)"
+    ]
+  }
+}

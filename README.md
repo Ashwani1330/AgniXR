@@ -93,7 +93,7 @@ fires one API call carrying the score, time, and action breakdown.
 
 ## Demo
 
-🎥 **[Watch the demo video →](docs/media/AgniXR_demo.mp4)**
+<video src="https://github.com/Ashwani1330/AgniXR/raw/main/docs/media/AgniXR_demo.mp4" controls width="100%"></video>
 
 The recording shows a live room scan, authoring a drill in Create mode, then
 running it in passthrough — grabbing the correct extinguisher, putting out a wall

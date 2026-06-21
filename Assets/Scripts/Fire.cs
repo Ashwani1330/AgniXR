@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -6,9 +7,21 @@ using UnityEngine;
 ///
 /// It is driven by <see cref="SprayZone"/>, which calls <see cref="Spray"/> once per frame
 /// while this fire is inside the extinguisher's spray trigger AND the extinguisher is firing.
+///
+/// All live fires register in <see cref="Active"/> so a single FireAudioManager can drive one
+/// shared fire-audio source (instead of one audio per fire).
 /// </summary>
 public class Fire : MonoBehaviour
 {
+    /// <summary>Every fire currently alive in the scene.</summary>
+    public static readonly List<Fire> Active = new List<Fire>();
+
+    /// <summary>Current size, 0 (extinguished) .. 1 (full). Used for total-audio intensity.</summary>
+    public float Intensity => size;
+
+    private void OnEnable() => Active.Add(this);
+    private void OnDisable() => Active.Remove(this);
+
     [Header("Extinguish")]
     [Tooltip("How fast the fire shrinks while sprayed, as a fraction of full size per second. " +
              "e.g. 0.5 = fully extinguished in 2 seconds of continuous spray.")]

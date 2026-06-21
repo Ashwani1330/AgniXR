@@ -8,7 +8,8 @@
       "Bash(grep -nE \"^--- !u!1 &2030239974|&2030239974$\" Assets/Scenes/MR.unity)",
       "Bash(sed -n 1212,1245p __TRACKED_VAR__/Scripts/OVRManager.cs)",
       "Bash(sed -n 12582,12600p __TRACKED_VAR__/Scripts/OVRPlugin.cs)",
-      "Bash(grep -nE 'shouldBoundaryVisibilityBeSuppressed|isBoundaryVisibilitySuppressed|RequestBoundaryVisibility' __TRACKED_VAR__/Scripts/OVRManager.cs)"
+      "Bash(grep -nE 'shouldBoundaryVisibilityBeSuppressed|isBoundaryVisibilitySuppressed|RequestBoundaryVisibility' __TRACKED_VAR__/Scripts/OVRManager.cs)",
+      "Bash(awk '/&563482450/{c=12} c>0{print; c--}' Assets/Scenes/MR.unity)"
     ]
   }
 }

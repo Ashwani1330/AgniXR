@@ -12,8 +12,8 @@ using TMPro;
 /// Controls (face buttons only — the index trigger is reserved for extinguisher spray):
 ///   A (Button.One)   -> spawn the SELECTED prefab at the right controller and anchor it
 ///   B (Button.Two)   -> switch which prefab is selected (Fire <-> Extinguisher)
-///   X (Button.Three) -> reload all saved anchors (each respawns its own prefab)
-///   Y (Button.Four)  -> RESET: destroy all spawned fire/extinguishers + clear saved anchors
+///   Right stick click -> reload all saved anchors (each respawns its own prefab)
+///   Y (Button.Four)   -> RESET: destroy all spawned fire/extinguishers + clear saved anchors
 ///
 /// Each saved entry stores "uuid|prefabIndex", so reload knows whether to respawn Fire or
 /// Extinguisher. UUIDs persist in PlayerPrefs.
@@ -85,7 +85,7 @@ public class AnchorProbe : MonoBehaviour
         if (OVRInput.GetDown(OVRInput.Button.Two))    // B (right) -> switch prefab
             ToggleSelection();
 
-        if (OVRInput.GetDown(OVRInput.Button.Three))  // X (left)  -> reload saved
+        if (OVRInput.GetDown(OVRInput.Button.PrimaryThumbstick))  // right stick click -> reload saved
             await LoadSaved();
 
         if (OVRInput.GetDown(OVRInput.Button.Four))   // Y (left)  -> reset (remove all + clear)
@@ -111,6 +111,12 @@ public class AnchorProbe : MonoBehaviour
 
     private async Task PlaceSelected()
     {
+        if (DrillModeManager.IsInPlayMode)
+        {
+            Debug.Log("[Probe] In PLAY mode — spawning is disabled. Switch back to Create to author.");
+            return;
+        }
+
         var prefab = SelectedPrefab;
         if (prefab == null || rightController == null)
         {
